@@ -9,6 +9,7 @@ const App: React.FC = () => {
   // --- 1. ESTADO DE AUTENTICACIÓN ---
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState<'admin' | 'cajero' | null>(null);
 
   // --- 2. ESTADO DE CAJA ---
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
@@ -16,17 +17,34 @@ const App: React.FC = () => {
 
   // --- 3. EFECTO PARA VERIFICAR SESIÓN ---
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
+      
+      if (session?.user) {
+        const { data } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', session.user.id)
+          .single();
+        setUserRole(data?.role || 'cajero');
+      }
       setLoading(false);
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
-      // Si cierran sesión, reseteamos el estado de la caja por seguridad
-      if (!session) {
+      
+      if (session?.user) {
+        const { data } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', session.user.id)
+          .single();
+        setUserRole(data?.role || 'cajero');
+      } else {
+        setUserRole(null);
         setIsRegisterOpen(false);
         setShowModal(true);
       }
@@ -90,7 +108,7 @@ const App: React.FC = () => {
   return (
     <div className="relative w-full h-screen overflow-hidden bg-gray-100">
       {/* El Dashboard se ve borroso si el modal está abierto */}
-      <DashboardLayout isBlurred={showModal} />
+      <DashboardLayout isBlurred={showModal} userRole={userRole} />
 
       {showModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]">

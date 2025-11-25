@@ -1,5 +1,5 @@
-import { supabase } from '../src/lib/supabase'; // Ajusta la ruta si tu archivo está en otro lado
-import React, { useState, useEffect } from 'react';
+import { supabase } from '../src/lib/supabase';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, 
   PlusCircle, 
@@ -18,25 +18,35 @@ import {
   Printer,
   Send,
   Settings,
-  Upload
+  Upload,
+  Scale as ScaleIcon,
+  Edit3,
+  Trash2,
+  Menu,
+  LogOut,
+  Plus,
+  Minus,
 } from 'lucide-react';
+import ScaleConfigModal, { ScaleConfig } from './ScaleConfigModal';
+import AdminDashboard from './AdminDashboard';
 
 interface DashboardLayoutProps {
   isBlurred?: boolean;
+  userRole?: 'admin' | 'cajero' | null;
 }
 
 const CATEGORIES = [
-  { id: 'all', name: 'Todo', icon: <Home size={16} />, color: 'bg-gray-200 text-gray-700' },
-  { id: 'frutas', name: 'Frutas', color: 'bg-[#FADCD9] text-[#8B4513]' }, 
-  { id: 'verduras', name: 'Verduras', color: 'bg-[#C1E1C1] text-[#2E8B57]' }, 
-  { id: 'tuberculos', name: 'Tubérculos', color: 'bg-[#E6CCB2] text-[#5D4037]' },
-  { id: 'frutales', name: 'Frutales', color: 'bg-[#FFE5B4] text-[#D2691E]' },
-  { id: 'hortalizas', name: 'Hortalizas', color: 'bg-[#98FB98] text-[#006400]' },
-  { id: 'bulbos', name: 'Bulbos', color: 'bg-[#E0B0FF] text-[#4B0082]' },
-  { id: 'legumbres', name: 'Legumbres', color: 'bg-[#FFFACD] text-[#8B8000]' },
-  { id: 'citricos', name: 'Cítricos', color: 'bg-[#FFD700] text-[#8B4500]' },
-  { id: 'tropicales', name: 'Tropicales', color: 'bg-[#FF7F50] text-[#8B0000]' },
-  { id: 'hierbas', name: 'Hierbas', color: 'bg-[#ACE1AF] text-[#006400]' },
+  { id: 'all', name: 'Todo', icon: <Home size={16} />, color: 'bg-gray-100 text-gray-600 hover:bg-gray-200' },
+  { id: 'frutas', name: 'Frutas', color: 'bg-red-50 text-red-600 hover:bg-red-100' }, 
+  { id: 'verduras', name: 'Verduras', color: 'bg-green-50 text-green-600 hover:bg-green-100' }, 
+  { id: 'tuberculos', name: 'Tubérculos', color: 'bg-amber-50 text-amber-700 hover:bg-amber-100' },
+  { id: 'frutales', name: 'Frutales', color: 'bg-orange-50 text-orange-600 hover:bg-orange-100' },
+  { id: 'hortalizas', name: 'Hortalizas', color: 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' },
+  { id: 'bulbos', name: 'Bulbos', color: 'bg-purple-50 text-purple-600 hover:bg-purple-100' },
+  { id: 'legumbres', name: 'Legumbres', color: 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100' },
+  { id: 'citricos', name: 'Cítricos', color: 'bg-lime-50 text-lime-700 hover:bg-lime-100' },
+  { id: 'tropicales', name: 'Tropicales', color: 'bg-rose-50 text-rose-600 hover:bg-rose-100' },
+  { id: 'hierbas', name: 'Hierbas', color: 'bg-teal-50 text-teal-600 hover:bg-teal-100' },
 ];
 
 interface Product {
@@ -55,18 +65,26 @@ interface CartItem {
 
 type ViewState = 'pos' | 'payment' | 'receipt' | 'backend';
 
-const DashboardLayout: React.FC<DashboardLayoutProps> = ({ isBlurred = false }) => {
+const DashboardLayout: React.FC<DashboardLayoutProps> = ({ 
+  isBlurred = false,
+  userRole = null
+}) => {
   
-  // --- CAMBIO 1: ESTADO INICIAL VACÍO (Esperando a Supabase) ---
   const [products, setProducts] = useState<Product[]>([]); 
-
   const [cart, setCart] = useState<CartItem[]>([]);
   const [activeCategory, setActiveCategory] = useState('all');
   const [view, setView] = useState<ViewState>('pos');
   const [paymentMethod, setPaymentMethod] = useState('efectivo');
   const [tenderAmount, setTenderAmount] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // --- CAMBIO 2: CARGAR PRODUCTOS DESDE SUPABASE ---
+  // --- SCALE STATE ---
+  const [scaleWeight, setScaleWeight] = useState(0.000);
+  const [scaleConfig, setScaleConfig] = useState<ScaleConfig>({ mode: 'simulation', autoStability: true });
+  const [isScaleModalOpen, setIsScaleModalOpen] = useState(false);
+  const scaleIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // --- LOAD PRODUCTS ---
   useEffect(() => {
     const fetchProducts = async () => {
       const { data, error } = await supabase
@@ -82,7 +100,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ isBlurred = false }) 
           id: item.id,
           name: item.name,
           price: item.price,
-          unit: 'kg',
+          unit: 'kg', // Asumimos KG por defecto para verdulería
           category: item.categories?.name || 'Varios',
           image: item.image_url || 'https://via.placeholder.com/150'
         }));
@@ -92,27 +110,83 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ isBlurred = false }) 
     fetchProducts();
   }, []);
 
-  const filteredProducts = activeCategory === 'all' 
-    ? products 
-    : products.filter(p => p.category.toLowerCase() === activeCategory.toLowerCase()); // Pequeña mejora para ignorar mayúsculas
+  // --- SCALE SIMULATION LOGIC ---
+  useEffect(() => {
+    if (scaleConfig.mode === 'simulation') {
+      scaleIntervalRef.current = setInterval(() => {
+        // Simular fluctuación pequeña si está "estable" o cambio grande aleatorio
+        const randomChange = (Math.random() - 0.5) * 0.010; // +/- 5g
+        setScaleWeight(prev => {
+            const newVal = Math.max(0, prev + randomChange);
+            return parseFloat(newVal.toFixed(3));
+        });
+      }, 500);
+    } else {
+      if (scaleIntervalRef.current) clearInterval(scaleIntervalRef.current);
+    }
+
+    return () => {
+      if (scaleIntervalRef.current) clearInterval(scaleIntervalRef.current);
+    };
+  }, [scaleConfig.mode]);
+
+  // Simular poner un peso "real" al hacer clic en la balanza (en modo simulación)
+  const simulateWeightOnScale = () => {
+      if (scaleConfig.mode === 'simulation') {
+          const randomWeight = (Math.random() * 5).toFixed(3); // 0 a 5kg
+          setScaleWeight(parseFloat(randomWeight));
+      } else {
+          // En modo manual, abrir modal para ingresar peso exacto? 
+          // Por ahora dejamos que el modal de config maneje el cambio de modo
+          setIsScaleModalOpen(true);
+      }
+  };
+
+  const filteredProducts = products.filter(p => {
+      const matchesCategory = activeCategory === 'all' || p.category.toLowerCase() === activeCategory.toLowerCase();
+      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesCategory && matchesSearch;
+  });
 
   const addToCart = (product: Product) => {
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
-      const incrementAmount = 1.5; 
+      
+      // LOGICA DE PESO:
+      // Si la balanza tiene peso > 0, usamos ese peso.
+      // Si no, sumamos 1 unidad (o 1kg por defecto si es manual).
+      let quantityToAdd = 1;
+      
+      if (scaleWeight > 0) {
+          quantityToAdd = scaleWeight;
+          // Opcional: Resetear balanza después de añadir?
+          // setScaleWeight(0); 
+      }
 
       if (existing) {
         return prev.map(item => 
           item.product.id === product.id 
-          ? { ...item, qty: item.qty + incrementAmount } 
+          ? { ...item, qty: item.qty + quantityToAdd } 
           : item
         );
       }
-      return [...prev, { product, qty: incrementAmount }];
+      return [...prev, { product, qty: quantityToAdd }];
     });
   };
 
-  const cartTotal = cart.reduce((sum, item) => sum + (item.product.price * item.qty), 0);
+  const removeFromCart = (productId: number) => {
+      setCart(prev => prev.filter(item => item.product.id !== productId));
+  };
+
+  const updateCartQty = (productId: number, newQty: number) => {
+      if (newQty <= 0) {
+          removeFromCart(productId);
+          return;
+      }
+      setCart(prev => prev.map(item => item.product.id === productId ? { ...item, qty: newQty } : item));
+  };
+
+  const cartTotal = parseFloat(cart.reduce((sum, item) => sum + (item.product.price * item.qty), 0).toFixed(2));
 
   const handleTenderInput = (val: string) => {
       if (val === 'backspace') {
@@ -122,12 +196,6 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ isBlurred = false }) 
       }
   };
   
-  const handleQuickCash = (amount: number) => {
-      const current = parseFloat(tenderAmount) || 0;
-      setTenderAmount((current + amount).toString());
-  };
-
-  // --- CAMBIO 3: PAGAR CON SUPABASE ---
   const handleValidateSale = async () => {
     if (cart.length === 0) return alert("El carrito esta vacio");
     
@@ -179,157 +247,213 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ isBlurred = false }) 
     }
   };
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
   const handleNewOrder = () => {
       setCart([]);
       setTenderAmount('');
       setView('pos');
-  };
-
-  // Manejador de imagen (Visual local solamente por ahora)
-  const handleImageUpload = (productId: number, event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        setProducts(prev => prev.map(p => 
-          p.id === productId ? { ...p, image: base64String } : p
-        ));
-      };
-      reader.readAsDataURL(file);
-    }
+      setScaleWeight(0);
   };
 
   const tenderedValue = parseFloat(tenderAmount) || 0;
   const difference = cartTotal - tenderedValue;
-  const isChange = difference < 0;
-  const changeAmount = Math.abs(difference);
 
   return (
-    <div className={`flex flex-col h-screen bg-gray-100 text-gray-800 transition-all duration-300 ${isBlurred ? 'blur-[2px]' : ''}`}>
+    <div className={`flex flex-col h-screen bg-[#f0f2f5] text-gray-800 font-sans transition-all duration-300 ${isBlurred ? 'blur-[2px]' : ''}`}>
       
-      {/* Header */}
-      <header className="h-14 bg-white border-b border-gray-300 flex shrink-0 shadow-sm z-20 relative">
-        <div className="w-[420px] border-r border-gray-300 flex items-center justify-between px-3 shrink-0">
-          <div className="flex items-center space-x-2">
-            <button onClick={() => setView('pos')} className={`px-3 py-1 font-medium text-sm rounded-sm transition-colors ${view === 'pos' ? 'bg-gray-700 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}>Registrar</button>
-            <button className="px-3 py-1 text-gray-600 hover:bg-gray-100 font-medium text-sm rounded-sm transition-colors">Pedidos</button>
-            <button className="p-1 text-gray-500 hover:bg-gray-100 rounded-full"><PlusCircle size={18} /></button>
-          </div>
-          <div className="px-2 py-0.5 bg-gray-200 text-gray-700 text-xs font-bold rounded border border-gray-300">1001</div>
+      <ScaleConfigModal 
+        isOpen={isScaleModalOpen} 
+        onClose={() => setIsScaleModalOpen(false)} 
+        config={scaleConfig}
+        onSave={(newConfig) => setScaleConfig(newConfig)}
+      />
+
+      {/* --- HEADER --- */}
+      <header className="h-16 bg-white border-b border-gray-200 flex shrink-0 shadow-sm z-20 relative px-4">
+        <div className="flex items-center gap-4 w-[420px] shrink-0 border-r border-gray-100 pr-4">
+            <div className="w-10 h-10 bg-[#704559] rounded-lg flex items-center justify-center text-white font-bold shadow-md shadow-[#704559]/20">
+                POS
+            </div>
+            <div className="flex flex-col">
+                <span className="text-sm font-bold text-gray-800">Caja Principal</span>
+                <span className="text-xs text-green-600 flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> Online
+                </span>
+            </div>
         </div>
 
-        <div className="flex-1 flex items-center px-3 gap-4">
-            {view === 'pos' && (
-                <>
-                  <div className="flex h-12 border-4 border-gray-300 rounded overflow-hidden shadow-md">
-                      <div className="bg-[#39FF14] w-48 flex items-center justify-end px-2 shadow-inner relative overflow-hidden">
-                          <span className="font-digital text-black text-6xl leading-none tracking-widest translate-y-1">1.500</span>
-                      </div>
-                      <div className="bg-[#2c3e50] w-14 flex items-center justify-center border-l border-gray-600">
-                          <span className="text-white font-medium text-xl">kg</span>
-                      </div>
-                  </div>
-                  <div className="flex-1 max-w-md ml-auto">
-                    <div className="relative group">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#704559]" size={16} />
-                      <input type="text" placeholder="Buscar productos..." className="w-full pl-9 pr-4 py-1.5 bg-gray-50 border border-gray-200 focus:bg-white focus:border-[#704559] rounded-sm text-sm focus:outline-none transition-all shadow-inner" />
-                    </div>
-                  </div>
-                </>
-            )}
-            
-            {view === 'payment' && <div className="flex-1 flex justify-center"><h1 className="text-xl font-bold text-gray-600">PAGOS</h1></div>}
-            {view === 'receipt' && <div className="flex-1 flex justify-center"><h1 className="text-xl font-bold text-gray-600">RECIBO</h1></div>}
-            {view === 'backend' && <div className="flex-1 flex justify-center"><h1 className="text-xl font-bold text-gray-600">GESTIÓN DE INVENTARIO</h1></div>}
-
-          <div className="flex items-center space-x-3 text-gray-500 ml-auto">
-            <div className="flex items-center gap-1 pr-2 border-r border-gray-300">
-               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-               <span className="text-xs font-medium text-green-600">Conectado</span>
+        <div className="flex-1 flex items-center justify-between pl-6">
+            {/* SCALE DISPLAY */}
+            <div 
+                onClick={simulateWeightOnScale}
+                className="group cursor-pointer relative overflow-hidden bg-gray-900 rounded-xl border border-gray-800 shadow-lg w-64 h-12 flex items-center justify-between px-4 transition-transform active:scale-95"
+            >
+                <div className="absolute inset-0 bg-gradient-to-r from-gray-800 to-gray-900"></div>
+                <div className="relative z-10 flex items-center gap-2">
+                    <ScaleIcon className="text-gray-400 group-hover:text-white transition-colors" size={20} />
+                    <span className="text-gray-400 text-xs font-medium uppercase tracking-wider">Balanza</span>
+                </div>
+                <div className="relative z-10 flex items-end gap-1">
+                    <span className={`text-3xl font-mono font-bold tracking-widest ${scaleWeight > 0 ? 'text-[#39FF14]' : 'text-gray-600'}`}>
+                        {scaleWeight.toFixed(3)}
+                    </span>
+                    <span className="text-gray-500 font-bold mb-1">kg</span>
+                </div>
             </div>
-            <button onClick={() => setView(view === 'backend' ? 'pos' : 'backend')} className={`p-2 rounded transition-colors ${view === 'backend' ? 'bg-[#704559] text-white shadow-md' : 'hover:bg-gray-100 hover:text-gray-800'}`}><Settings size={20} /></button>
-            <button className="hover:text-gray-800"><Barcode size={20} /></button>
-            <div className="w-7 h-7 bg-[#A0522D] text-white rounded flex items-center justify-center font-bold text-xs cursor-pointer hover:opacity-90 shadow-sm">W</div>
-            <button className="hover:text-gray-800"><AlignJustify size={20} /></button>
-          </div>
+
+            {/* SEARCH BAR */}
+            <div className="flex-1 max-w-xl mx-6 relative group">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#704559] transition-colors" size={20} />
+                <input 
+                    type="text" 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar productos (nombre, código)..." 
+                    className="w-full pl-12 pr-4 py-3 bg-gray-100 border-transparent focus:bg-white focus:border-[#704559] focus:ring-4 focus:ring-[#704559]/10 rounded-xl text-sm font-medium transition-all outline-none" 
+                />
+            </div>
+
+            {userRole === 'admin' && (
+                <button 
+                    onClick={() => setView('backend')}
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center gap-2"
+                >
+                    <Settings size={14} />
+                    Panel Admin
+                </button>
+            )}
+
+            {/* ACTIONS */}
+            <div className="flex items-center gap-2">
+                <button 
+                    onClick={handleLogout}
+                    className="p-2.5 text-gray-500 hover:text-red-500 rounded-lg transition-colors"
+                    title="Cerrar Sesión"
+                >
+                    <LogOut size={20} />
+                </button>
+            </div>
         </div>
       </header>
 
-      {/* CONTENT AREA */}
+      {/* --- CONTENT --- */}
       <div className="flex flex-1 overflow-hidden relative">
         
-        {/* VIEW: POS (Standard) */}
+        {/* VIEW: POS */}
         {view === 'pos' && (
             <>
-                {/* LEFT PANEL: Cart / Numpad */}
-                <div className="w-[420px] bg-white border-r border-gray-300 flex flex-col relative shadow-lg z-10 shrink-0">
-                
-                {/* Cart Items List */}
-                <div className="flex-1 overflow-y-auto scrollbar-thin">
-                    {cart.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-gray-300 space-y-4">
-                        <ShoppingCart size={80} strokeWidth={1} />
-                        <p className="font-medium text-gray-400 text-lg">La cesta está vacía</p>
+                {/* LEFT: CART */}
+                <div className="w-[420px] bg-white border-r border-gray-200 flex flex-col z-10 shadow-xl">
+                    {/* Cart Header */}
+                    <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                        <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                            <ShoppingCart size={20} className="text-[#704559]" />
+                            Carrito Actual
+                        </h2>
+                        <span className="bg-[#704559]/10 text-[#704559] text-xs font-bold px-2 py-1 rounded-full">
+                            {cart.length} items
+                        </span>
                     </div>
-                    ) : (
-                    <div className="flex flex-col">
-                        <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 border-b border-gray-200 flex sticky top-0 z-10">
-                            <span className="flex-1">Producto</span>
-                            <span className="w-20 text-center">Precio U.</span>
-                            <span className="w-16 text-center">Cant/ Kg</span>
-                            <span className="w-20 text-right">Total</span>
+
+                    {/* Cart Items */}
+                    <div className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-thin">
+                        {cart.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-gray-300 space-y-4 opacity-50">
+                                <ShoppingCart size={64} strokeWidth={1} />
+                                <p className="font-medium text-sm">Escanea o selecciona productos</p>
+                            </div>
+                        ) : (
+                            cart.map((item, idx) => (
+                                <div key={idx} className="group relative bg-white border border-gray-100 rounded-xl p-3 hover:border-[#704559]/30 hover:shadow-md transition-all">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex-1">
+                                            <h4 className="font-bold text-gray-800 leading-tight">{item.product.name}</h4>
+                                            <div className="text-xs text-gray-500 mt-1">
+                                                S/ {item.product.price.toFixed(2)} x kg
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="font-bold text-gray-900 text-lg">
+                                                S/ {(item.product.price * item.qty).toFixed(2)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center justify-between bg-gray-50 rounded-lg p-1">
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                onClick={() => updateCartQty(item.product.id, item.qty - 0.1)}
+                                                className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-md hover:bg-gray-100 text-gray-600 font-bold"
+                                            >-</button>
+                                            <div className="w-20 text-center">
+                                                <span className="font-bold text-gray-800">{item.qty.toFixed(3)}</span>
+                                                <span className="text-[10px] text-gray-500 ml-1">kg</span>
+                                            </div>
+                                            <button 
+                                                onClick={() => updateCartQty(item.product.id, item.qty + 0.1)}
+                                                className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-md hover:bg-gray-100 text-gray-600 font-bold"
+                                            >+</button>
+                                        </div>
+                                        <button 
+                                            onClick={() => removeFromCart(item.product.id)}
+                                            className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+                    {/* Cart Footer */}
+                    <div className="bg-white border-t border-gray-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                        <div className="flex justify-between items-end mb-4">
+                            <span className="text-gray-500 font-medium">Total a Pagar</span>
+                            <span className="text-4xl font-bold text-[#704559] tracking-tight">
+                                S/ {cartTotal.toFixed(2)}
+                            </span>
                         </div>
-                        {cart.map((item, idx) => (
-                        <div key={idx} className={`px-4 py-3 border-b border-gray-100 hover:bg-blue-50 cursor-pointer group flex items-center ${idx === cart.length - 1 ? 'bg-blue-50/50' : ''}`}>
-                            <div className="flex-1"><p className="text-base font-bold text-gray-800 leading-tight">{item.product.name}</p></div>
-                            <div className="w-20 text-center text-xs font-medium text-gray-500">S/. {item.product.price.toFixed(2)} <span className='text-[10px]'>/{item.product.unit}</span></div>
-                            <div className="w-16 text-center font-bold text-gray-700">{item.qty.toFixed(3)}</div>
-                            <div className="w-20 text-right font-bold text-gray-900">S/. {(item.product.price * item.qty).toFixed(2)}</div>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                            <button 
+                                onClick={() => setCart([])}
+                                className="px-4 py-3 rounded-xl border border-gray-200 text-gray-600 font-bold hover:bg-gray-50 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={() => setView('payment')}
+                                disabled={cart.length === 0}
+                                className="px-4 py-3 rounded-xl bg-[#704559] text-white font-bold shadow-lg shadow-[#704559]/30 hover:bg-[#5a3748] hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                            >
+                                <Banknote size={20} />
+                                Pagar
+                            </button>
                         </div>
-                        ))}
-                    </div>
-                    )}
-                </div>
-
-                {/* Totals Section */}
-                <div className="border-t border-gray-200 px-4 py-4 bg-gray-50">
-                    <div className="flex justify-between items-end">
-                    <span className="text-gray-800 text-xl font-bold">Total</span>
-                    <span className="text-gray-900 text-3xl font-bold">S/. {cartTotal.toFixed(2)}</span>
                     </div>
                 </div>
 
-                {/* Keypad / Action Area */}
-                <div className="border-t border-gray-300 bg-white">
-                    <div className="grid grid-cols-4 h-[240px]">
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">1</button>
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">2</button>
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">3</button>
-                        <button className="border-b border-gray-200 bg-[#e0f2f1] hover:bg-[#b2dfdb] text-lg font-semibold text-teal-900 active:bg-[#80cbc4]">Ctd.</button>
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">4</button>
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">5</button>
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">6</button>
-                        <button className="border-b border-gray-200 hover:bg-gray-100 text-lg font-medium text-gray-700 active:bg-gray-200">%</button>
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">7</button>
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">8</button>
-                        <button className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">9</button>
-                        <button className="border-b border-gray-200 hover:bg-gray-100 text-lg font-medium text-gray-700 active:bg-gray-200">Precio</button>
-                        <button className="border-r border-b border-gray-200 bg-[#fff59d] hover:bg-[#fff176] text-lg font-medium text-gray-800 active:bg-[#ffee58]">+/-</button>
-                        <button onClick={() => handleTenderInput('0')} className="border-r border-b border-gray-200 hover:bg-gray-100 text-xl font-medium text-gray-700 active:bg-gray-200">0</button>
-                        <button onClick={() => handleTenderInput('.')} className="border-r border-b border-gray-200 bg-[#C1E1C1] hover:bg-[#a8d8a8] text-xl font-medium text-gray-800 active:bg-[#8fce8f]"> , </button>
-                        <button onClick={() => handleTenderInput('backspace')} className="border-b border-gray-200 bg-[#98FB98] hover:bg-[#80e680] text-gray-800 active:bg-[#6bd46b] flex items-center justify-center"><Delete className="w-6 h-6" /></button>
-                    </div>
-                    <button onClick={() => setView('payment')} disabled={cart.length === 0} className="w-full h-[60px] bg-[#28a745] hover:bg-[#218838] disabled:bg-gray-300 disabled:cursor-not-allowed text-white text-xl font-semibold flex items-center justify-center shadow-inner active:bg-[#1e7e34] transition-colors">Pago</button>
-                </div>
-                </div>
-
-                {/* RIGHT PANEL: Product Catalog */}
-                <div className="flex-1 flex flex-col bg-[#f0f0f0] overflow-hidden">
-                    <div className="p-3 bg-white border-b border-gray-200 shadow-sm overflow-x-auto whitespace-nowrap custom-scrollbar">
-                        <div className="flex space-x-3">
+                {/* RIGHT: PRODUCTS */}
+                <div className="flex-1 flex flex-col bg-[#f8f9fa] overflow-hidden">
+                    {/* Categories */}
+                    <div className="p-4 overflow-x-auto whitespace-nowrap scrollbar-hide">
+                        <div className="flex gap-3">
                             {CATEGORIES.map(cat => (
-                                <button key={cat.id} onClick={() => setActiveCategory(cat.id)} className={`px-5 py-2 rounded shadow-sm text-sm font-bold transition-all hover:shadow-md flex items-center gap-2 ${activeCategory === cat.id ? 'ring-2 ring-offset-1 ring-gray-400' : ''} ${cat.color}`}>
+                                <button 
+                                    key={cat.id} 
+                                    onClick={() => setActiveCategory(cat.id)} 
+                                    className={`
+                                        px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 border
+                                        ${activeCategory === cat.id 
+                                            ? 'bg-gray-800 text-white border-gray-800 shadow-lg scale-105' 
+                                            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:shadow-sm'
+                                        }
+                                    `}
+                                >
                                     {cat.icon && <span>{cat.icon}</span>}
                                     <span>{cat.name}</span>
                                 </button>
@@ -337,16 +461,36 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ isBlurred = false }) 
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4">
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                    {/* Grid */}
+                    <div className="flex-1 overflow-y-auto p-4 pt-0">
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
                             {filteredProducts.map(product => (
-                                <div key={product.id} onClick={() => addToCart(product)} className="bg-white rounded-md overflow-hidden shadow-sm border border-gray-200 hover:shadow-md transition-shadow cursor-pointer group relative flex flex-col h-[180px]">
-                                    <div className="absolute top-1 right-1 bg-green-600 text-white text-sm font-bold px-2 py-1 rounded z-20 shadow-sm">S/. {product.price.toFixed(2)}</div>
-                                    <div className="absolute inset-0 w-full h-full bg-gray-100">
-                                        <img src={product.image} alt={product.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x300?text=Sin+Imagen'; }} />
+                                <div 
+                                    key={product.id} 
+                                    onClick={() => addToCart(product)} 
+                                    className="group bg-white rounded-2xl p-3 border border-gray-100 shadow-sm hover:shadow-xl hover:border-[#704559]/20 hover:-translate-y-1 transition-all cursor-pointer flex flex-col h-[220px]"
+                                >
+                                    <div className="relative flex-1 bg-gray-50 rounded-xl overflow-hidden mb-3">
+                                        <img 
+                                            src={product.image} 
+                                            alt={product.name} 
+                                            className="w-full h-full object-cover mix-blend-multiply group-hover:scale-110 transition-transform duration-500" 
+                                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x300?text=Sin+Imagen'; }} 
+                                        />
+                                        <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-bold text-gray-800 shadow-sm">
+                                            S/ {product.price.toFixed(2)}
+                                        </div>
                                     </div>
-                                    <div className="absolute bottom-0 w-full bg-white/80 backdrop-blur-[1px] p-2 border-t border-gray-100/50 z-10">
-                                        <h3 className="text-lg font-bold text-gray-900 leading-tight truncate">{product.name}</h3>
+                                    <div>
+                                        <h3 className="font-bold text-gray-800 truncate mb-1">{product.name}</h3>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md">
+                                                {product.category}
+                                            </span>
+                                            <span className="text-xs font-medium text-[#704559]">
+                                                x {product.unit}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -356,80 +500,145 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ isBlurred = false }) 
             </>
         )}
 
-        {/* VIEW: PAYMENT SCREEN */}
+        {/* VIEW: PAYMENT */}
         {view === 'payment' && (
-            <div className="w-full h-full flex animate-in fade-in duration-200">
-                <div className="w-[320px] bg-white border-r border-gray-300 flex flex-col p-4 space-y-3">
-                    <h3 className="text-gray-500 text-sm font-bold uppercase mb-2">Métodos de Pago</h3>
-                    <button onClick={() => setPaymentMethod('efectivo')} className={`flex items-center p-4 rounded border transition-all ${paymentMethod === 'efectivo' ? 'border-green-500 bg-green-50 text-green-700 shadow-md' : 'border-gray-200 hover:bg-gray-50 text-gray-700'}`}><Banknote className="mr-3" /><span className="font-bold">Efectivo</span></button>
-                    <button onClick={() => setPaymentMethod('yape')} className={`flex items-center p-4 rounded border transition-all ${paymentMethod === 'yape' ? 'border-[#742284] bg-[#f3e5f5] text-[#742284] shadow-md' : 'border-gray-200 hover:bg-gray-50 text-gray-700'}`}><Smartphone size={14} className="mr-3"/><span className="font-bold">Yape</span></button>
-                    <button onClick={() => setPaymentMethod('tarjeta')} className={`flex items-center p-4 rounded border transition-all ${paymentMethod === 'tarjeta' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' : 'border-gray-200 hover:bg-gray-50 text-gray-700'}`}><CreditCard className="mr-3" /><span className="font-bold">Tarjeta</span></button>
+            <div className="w-full h-full flex animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="w-[360px] bg-white border-r border-gray-200 p-6 flex flex-col gap-4 z-10 shadow-xl">
+                    <button onClick={() => setView('pos')} className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors mb-4">
+                        <ArrowLeft size={20} />
+                        <span className="font-bold">Volver al POS</span>
+                    </button>
+
+                    <h3 className="text-lg font-bold text-gray-800">Método de Pago</h3>
+                    
+                    <div className="space-y-3">
+                        <button onClick={() => setPaymentMethod('efectivo')} className={`w-full flex items-center p-4 rounded-xl border-2 transition-all ${paymentMethod === 'efectivo' ? 'border-green-500 bg-green-50 text-green-700 shadow-md' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}>
+                            <Banknote className="mr-3" size={24} />
+                            <div className="text-left">
+                                <span className="block font-bold">Efectivo</span>
+                                <span className="text-xs opacity-75">Pago en cash</span>
+                            </div>
+                        </button>
+                        <button onClick={() => setPaymentMethod('yape')} className={`w-full flex items-center p-4 rounded-xl border-2 transition-all ${paymentMethod === 'yape' ? 'border-[#742284] bg-[#f3e5f5] text-[#742284] shadow-md' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}>
+                            <Smartphone className="mr-3" size={24} />
+                            <div className="text-left">
+                                <span className="block font-bold">Yape / Plin</span>
+                                <span className="text-xs opacity-75">QR Digital</span>
+                            </div>
+                        </button>
+                        <button onClick={() => setPaymentMethod('tarjeta')} className={`w-full flex items-center p-4 rounded-xl border-2 transition-all ${paymentMethod === 'tarjeta' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}>
+                            <CreditCard className="mr-3" size={24} />
+                            <div className="text-left">
+                                <span className="block font-bold">Tarjeta</span>
+                                <span className="text-xs opacity-75">Visa / Mastercard</span>
+                            </div>
+                        </button>
+                    </div>
                 </div>
 
-                <div className="flex-1 flex flex-col bg-gray-50">
-                    <div className="flex-1 flex flex-col items-center pt-16 px-20">
-                        <div className="text-[64px] font-bold text-gray-700 tracking-tight leading-none mb-12">S/ <span className="text-gray-800">{cartTotal.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                        <div className="w-full max-w-3xl space-y-4">
-                            {tenderedValue > 0 && (
-                                <div className="flex items-center justify-between bg-[#E0F2F1] border border-[#80CBC4] rounded-md px-6 py-4">
-                                    <span className="text-xl font-medium text-gray-700">Efectivo</span>
-                                    <div className="flex items-center gap-4"><span className="text-2xl font-bold text-[#1B5E20]">S/ {tenderedValue.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><button onClick={() => setTenderAmount('')} className="text-red-500 hover:text-red-700"><X size={24} /></button></div>
+                <div className="flex-1 bg-gray-50 flex flex-col items-center justify-center p-12">
+                    <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-2xl text-center border border-gray-100">
+                        <span className="text-gray-400 font-medium uppercase tracking-widest text-sm">Total a Cobrar</span>
+                        <div className="text-7xl font-black text-gray-800 mt-2 mb-8 tracking-tighter">
+                            S/ {cartTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                        </div>
+
+                        {paymentMethod === 'efectivo' && (
+                            <div className="max-w-md mx-auto">
+                                <div className="bg-gray-100 rounded-2xl p-2 flex items-center mb-6 border-2 border-transparent focus-within:border-[#704559] focus-within:bg-white transition-all">
+                                    <span className="pl-4 text-gray-400 font-bold text-xl">S/</span>
+                                    <input 
+                                        type="text" 
+                                        readOnly
+                                        value={tenderAmount}
+                                        placeholder="0.00"
+                                        className="w-full bg-transparent text-4xl font-bold text-gray-800 text-right px-4 py-2 outline-none"
+                                    />
                                 </div>
-                            )}
-                            {tenderedValue === 0 && <div className="text-center text-gray-400 mt-10">Ingrese el monto en efectivo</div>}
-                        </div>
-                    </div>
 
-                    <div className="h-[450px] w-full max-w-4xl mx-auto flex flex-col p-4">
-                        <div className="flex-1 grid grid-cols-4 gap-3 mb-3">
-                            {[1,2,3,4,5,6,7,8,9,0].map(n => <button key={n} onClick={() => handleTenderInput(n.toString())} className="bg-white rounded shadow-sm text-2xl font-medium text-gray-700 hover:bg-gray-50 border border-gray-200">{n}</button>)}
-                            <button onClick={() => handleTenderInput('.')} className="bg-white rounded shadow-sm text-2xl font-medium text-gray-700 hover:bg-gray-50 border border-gray-200">.</button>
-                            <button onClick={() => handleTenderInput('backspace')} className="bg-[#98FB98] rounded shadow-sm flex items-center justify-center"><Delete /></button>
-                        </div>
-                        <div className="flex gap-4 h-14">
-                            <button onClick={() => setView('pos')} className="flex-1 bg-white border border-gray-300 text-gray-700 font-bold rounded shadow-sm hover:bg-gray-50 flex items-center justify-center gap-2"><ArrowLeft size={20} /> Regresar</button>
-                            <button onClick={handleValidateSale} className="flex-[2] bg-[#704559] text-white font-bold rounded shadow-md hover:bg-[#5a3748] flex items-center justify-center gap-2"><CheckCircle size={20} /> Validar</button>
-                        </div>
+                                <div className="grid grid-cols-3 gap-3 mb-6">
+                                    {[1,2,3,4,5,6,7,8,9].map(n => (
+                                        <button key={n} onClick={() => handleTenderInput(n.toString())} className="h-16 rounded-xl bg-white border border-gray-200 text-2xl font-bold text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all">
+                                            {n}
+                                        </button>
+                                    ))}
+                                    <button onClick={() => handleTenderInput('.')} className="h-16 rounded-xl bg-white border border-gray-200 text-2xl font-bold text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all">.</button>
+                                    <button onClick={() => handleTenderInput('0')} className="h-16 rounded-xl bg-white border border-gray-200 text-2xl font-bold text-gray-700 hover:bg-gray-50 hover:shadow-md transition-all">0</button>
+                                    <button onClick={() => handleTenderInput('backspace')} className="h-16 rounded-xl bg-red-50 border border-red-100 text-red-500 hover:bg-red-100 hover:shadow-md transition-all flex items-center justify-center">
+                                        <Delete size={24} />
+                                    </button>
+                                </div>
+
+                                {tenderedValue > 0 && (
+                                    <div className={`p-4 rounded-xl mb-6 flex justify-between items-center ${difference <= 0 ? 'bg-green-100 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                                        <span className="font-bold">{difference <= 0 ? 'Vuelto' : 'Faltante'}</span>
+                                        <span className="text-2xl font-bold">S/ {Math.abs(difference).toFixed(2)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <button 
+                            onClick={handleValidateSale}
+                            disabled={paymentMethod === 'efectivo' && difference > 0}
+                            className="w-full py-5 bg-[#704559] text-white text-xl font-bold rounded-2xl shadow-xl shadow-[#704559]/30 hover:bg-[#5a3748] hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex items-center justify-center gap-3"
+                        >
+                            <CheckCircle size={28} />
+                            Confirmar Pago
+                        </button>
                     </div>
                 </div>
             </div>
         )}
 
-        {/* VIEW: RECEIPT SCREEN */}
+        {/* VIEW: RECEIPT */}
         {view === 'receipt' && (
-            <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                <div className="bg-white w-[380px] shadow-2xl py-8 px-6 text-sm font-mono text-gray-700">
-                    <div className="flex flex-col items-center mb-6">
-                        <span className="text-3xl font-black tracking-tight text-[#4caf50]">Yappita POS</span>
-                        <p className="mt-2">Pago Exitoso</p>
+            <div className="w-full h-full flex items-center justify-center bg-gray-100 p-4">
+                <div className="bg-white w-full max-w-sm shadow-2xl rounded-xl overflow-hidden animate-in zoom-in-95 duration-300">
+                    <div className="bg-[#4caf50] p-6 text-center text-white">
+                        <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                            <CheckCircle size={32} />
+                        </div>
+                        <h2 className="text-2xl font-bold">¡Venta Exitosa!</h2>
+                        <p className="opacity-90">La transacción se guardó correctamente</p>
                     </div>
-                    <div className="space-y-3 mb-6 border-b border-dashed border-gray-300 pb-6">
-                        {cart.map((item, idx) => (
-                            <div key={idx} className="flex justify-between"><span>{item.product.name}</span><span>S/ {(item.product.price * item.qty).toFixed(2)}</span></div>
-                        ))}
+                    
+                    <div className="p-8">
+                        <div className="space-y-4 mb-8">
+                            <div className="flex justify-between text-gray-600">
+                                <span>Total Pagado</span>
+                                <span className="font-bold text-gray-800">S/ {cartTotal.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span>Método</span>
+                                <span className="font-bold text-gray-800 capitalize">{paymentMethod}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                                <span>Items</span>
+                                <span className="font-bold text-gray-800">{cart.length}</span>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <button className="py-3 border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-2">
+                                <Printer size={18} /> Imprimir
+                            </button>
+                            <button className="py-3 border border-gray-200 rounded-xl font-bold text-gray-600 hover:bg-gray-50 flex items-center justify-center gap-2">
+                                <Send size={18} /> Enviar
+                            </button>
+                        </div>
+
+                        <button onClick={handleNewOrder} className="w-full mt-4 py-4 bg-[#704559] text-white font-bold rounded-xl hover:bg-[#5a3748] transition-colors">
+                            Nueva Venta
+                        </button>
                     </div>
-                    <div className="flex justify-between text-xl font-bold"><span>TOTAL</span><span>S/ {cartTotal.toFixed(2)}</span></div>
-                    <button onClick={handleNewOrder} className="w-full mt-8 py-3 bg-[#704559] text-white font-bold rounded">Nueva Orden</button>
                 </div>
             </div>
         )}
-
         {/* VIEW: BACKEND */}
         {view === 'backend' && (
-             <div className="w-full h-full bg-gray-50 p-8">
-                <h2 className="text-2xl font-bold mb-4">Inventario</h2>
-                <button onClick={() => setView('pos')} className="mb-4 px-4 py-2 bg-white border rounded">Volver</button>
-                <div className="bg-white rounded shadow overflow-hidden">
-                    <table className="w-full text-left">
-                        <thead className="bg-gray-100"><tr><th className="p-4">Producto</th><th className="p-4">Precio</th></tr></thead>
-                        <tbody>
-                            {products.map(p => <tr key={p.id} className="border-t"><td className="p-4">{p.name}</td><td className="p-4">S/ {p.price.toFixed(2)}</td></tr>)}
-                        </tbody>
-                    </table>
-                </div>
-             </div>
+          <AdminDashboard onBack={() => setView('pos')} />
         )}
-
       </div>
     </div>
   );
