@@ -132,14 +132,9 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
   // Simular poner un peso "real" al hacer clic en la balanza (en modo simulación)
   const simulateWeightOnScale = () => {
-      if (scaleConfig.mode === 'simulation') {
-          const randomWeight = (Math.random() * 5).toFixed(3); // 0 a 5kg
-          setScaleWeight(parseFloat(randomWeight));
-      } else {
-          // En modo manual, abrir modal para ingresar peso exacto? 
-          // Por ahora dejamos que el modal de config maneje el cambio de modo
-          setIsScaleModalOpen(true);
-      }
+      // Generar un peso aleatorio entre 0.100 y 5.000 kg
+      const randomWeight = (Math.random() * 4.9) + 0.1;
+      setScaleWeight(parseFloat(randomWeight.toFixed(3)));
   };
 
   const filteredProducts = products.filter(p => {
@@ -262,8 +257,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   const difference = cartTotal - tenderedValue;
 
   return (
-    <div className={`flex flex-col h-screen bg-[#f0f2f5] text-gray-800 font-sans transition-all duration-300 ${isBlurred ? 'blur-[2px]' : ''}`}>
-      
+    <div className={`flex flex-col h-screen bg-gray-900 text-gray-100 font-sans transition-all duration-300 ${isBlurred ? 'blur-[2px]' : ''}`}>
       <ScaleConfigModal 
         isOpen={isScaleModalOpen} 
         onClose={() => setIsScaleModalOpen(false)} 
@@ -272,7 +266,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       />
 
       {/* --- HEADER --- */}
-      <header className="h-16 bg-white border-b border-gray-200 flex shrink-0 shadow-sm z-20 relative px-4">
+      <header className="h-16 bg-gray-800 border-b border-gray-700 flex shrink-0 shadow-sm z-20 relative px-4">
         <div className="flex items-center gap-4 w-[420px] shrink-0 border-r border-gray-100 pr-4">
             <div className="w-10 h-10 bg-[#704559] rounded-lg flex items-center justify-center text-white font-bold shadow-md shadow-[#704559]/20">
                 POS
@@ -294,7 +288,7 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                 <div className="absolute inset-0 bg-gradient-to-r from-gray-800 to-gray-900"></div>
                 <div className="relative z-10 flex items-center gap-2">
                     <ScaleIcon className="text-gray-400 group-hover:text-white transition-colors" size={20} />
-                    <span className="text-gray-400 text-xs font-medium uppercase tracking-wider">Balanza</span>
+                    <span className="text-gray-400 text-xs font-medium uppercase tracking-wider">Test Peso</span>
                 </div>
                 <div className="relative z-10 flex items-end gap-1">
                     <span className={`text-3xl font-mono font-bold tracking-widest ${scaleWeight > 0 ? 'text-[#39FF14]' : 'text-gray-600'}`}>
@@ -503,13 +497,13 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
         {/* VIEW: PAYMENT */}
         {view === 'payment' && (
             <div className="w-full h-full flex animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <div className="w-[360px] bg-white border-r border-gray-200 p-6 flex flex-col gap-4 z-10 shadow-xl">
+                <div className="w-[360px] bg-gray-800 border-r border-gray-700 p-6 flex flex-col gap-4 z-10 shadow-xl">
                     <button onClick={() => setView('pos')} className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors mb-4">
                         <ArrowLeft size={20} />
                         <span className="font-bold">Volver al POS</span>
                     </button>
 
-                    <h3 className="text-lg font-bold text-gray-800">Método de Pago</h3>
+                    <h3 className="text-lg font-bold text-gray-100">Método de Pago</h3>
                     
                     <div className="space-y-3">
                         <button onClick={() => setPaymentMethod('efectivo')} className={`w-full flex items-center p-4 rounded-xl border-2 transition-all ${paymentMethod === 'efectivo' ? 'border-green-500 bg-green-50 text-green-700 shadow-md' : 'border-gray-100 hover:bg-gray-50 text-gray-600'}`}>
@@ -536,10 +530,10 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
                     </div>
                 </div>
 
-                <div className="flex-1 bg-gray-50 flex flex-col items-center justify-center p-12">
-                    <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-2xl text-center border border-gray-100">
+                <div className="flex-1 bg-gray-900 flex flex-col items-center justify-center p-12">
+    <div className="bg-gray-800 p-8 rounded-3xl shadow-xl w-full max-w-2xl text-center border border-gray-700">
                         <span className="text-gray-400 font-medium uppercase tracking-widest text-sm">Total a Cobrar</span>
-                        <div className="text-7xl font-black text-gray-800 mt-2 mb-8 tracking-tighter">
+                        <div className="text-7xl font-black text-white mt-2 mb-8 tracking-tighter">
                             S/ {cartTotal.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
                         </div>
 
