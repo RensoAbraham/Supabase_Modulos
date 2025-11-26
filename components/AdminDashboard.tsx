@@ -34,7 +34,13 @@ interface Sale {
   payment_method: string;
   user_id: string;
   users?: {
+    id: string;
     email: string;
+    role: string;
+    raw_user_meta_data?: {
+      user_name?: string;
+      full_name?: string;
+    };
   };
 }
 
@@ -87,7 +93,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     setLoadingSales(true);
     const { data, error } = await supabase
       .from('sales_header')
-      .select('*, users(email)')
+      .select('*, users(id, email, role, raw_user_meta_data)')
       .order('created_at', { ascending: false })
       .limit(50);
     
@@ -146,8 +152,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
   const handleSaveProduct = async () => {
     try {
-      // 1. Get Category ID
-      const { data: catData } = await supabase
+      // Validate inputs
+      if (!formData.name || !formData.price) {
+        alert('Por favor completa todos los campos requeridos');
+        return;
+      }
+
+      // 1. Get or Create Category ID
+      let { data: catData } = await supabase
         .from('categories')
         .select('id')
         .ilike('name', formData.category)
@@ -155,17 +167,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       
       let categoryId = catData?.id;
 
-      // If category doesn't exist, create it (simplified) or default to null
+      // If category doesn't exist, create it
       if (!categoryId) {
-          // For now, assume categories exist or handle error
-          // You might want to create it if it doesn't exist
+        const { data: newCat, error: catError } = await supabase
+          .from('categories')
+          .insert({ name: formData.category })
+          .select('id')
+          .single();
+        
+        if (catError) {
+          console.error('Error creating category:', catError);
+          alert('Error al crear categoría: ' + catError.message);
+          return;
+        }
+        categoryId = newCat?.id;
       }
 
       const payload = {
         name: formData.name,
         price: parseFloat(formData.price),
-        category_id: categoryId, // Note: Schema might use category_id
-        image_url: formData.image_url
+        category_id: categoryId,
+        image_url: formData.image_url || null
       };
 
       let error;
@@ -186,11 +208,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
       setIsProductModalOpen(false);
       fetchProducts();
-      alert(editingProduct ? 'Producto actualizado' : 'Producto creado');
+      alert(editingProduct ? '✅ Producto actualizado' : '✅ Producto creado');
 
     } catch (err: any) {
       console.error('Error saving product:', err);
-      alert('Error al guardar: ' + err.message);
+      alert('❌ Error al guardar: ' + err.message);
     }
   };
 
@@ -261,22 +283,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     <th className="p-4 font-medium">ID</th>
                     <th className="p-4 font-medium">Fecha</th>
                     <th className="p-4 font-medium">Cajero</th>
+                    <th className="p-4 font-medium">Rol</th>
                     <th className="p-4 font-medium">Método</th>
                     <th className="p-4 font-medium text-right">Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
                   {loadingSales ? (
-                    <tr><td colSpan={5} className="p-8 text-center text-gray-500">Cargando ventas...</td></tr>
-                  ) : sales.map(sale => (
-                    <tr key={sale.id} className="hover:bg-gray-700/30 transition-colors">
-                      <td className="p-4 text-gray-300">#{sale.id}</td>
-                      <td className="p-4 text-gray-300">{new Date(sale.created_at).toLocaleString()}</td>
-                      <td className="p-4 text-gray-300">{sale.users?.email || 'Desconocido'}</td>
-                      <td className="p-4"><span className="capitalize px-2 py-1 rounded bg-gray-700 text-xs font-bold">{sale.payment_method}</span></td>
-                      <td className="p-4 text-right font-bold text-green-400">S/ {sale.total.toFixed(2)}</td>
-                    </tr>
-                  ))}
+                    <tr><td colSpan={6} className="p-8 text-center text-gray-500">Cargando ventas...</td></tr>
+                  ) : sales.map(sale => {
+                    const userName = sale.users?.raw_user_meta_data?.user_name || sale.users?.raw_user_meta_data?.full_name || sale.users?.email?.split('@')[0] || 'Desconocido';
+                    const userRole = sale.users?.role || 'N/A';
+                    return (
+                      <tr key={sale.id} className="hover:bg-gray-700/30 transition-colors">
+                        <td className="p-4 text-gray-300">#{sale.id}</td>
+                        <td className="p-4 text-gray-300">{new Date(sale.created_at).toLocaleString()}</td>
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span className="text-gray-200 font-medium">{userName}</span>
+                            <span className="text-xs text-gray-400">{sale.users?.email}</span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className={`capitalize px-2 py-1 rounded text-xs font-bold ${
+                            userRole === 'admin' ? 'bg-purple-900/30 text-purple-400' : 'bg-green-900/30 text-green-400'
+                          }`}>{userRole}</span>
+                        </td>
+                        <td className="p-4"><span className="capitalize px-2 py-1 rounded bg-gray-700 text-xs font-bold">{sale.payment_method}</span></td>
+                        <td className="p-4 text-right font-bold text-green-400">S/ {sale.total.toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
