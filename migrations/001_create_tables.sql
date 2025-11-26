@@ -1,3 +1,4 @@
+
 -- Creación de las tablas base (Mínimo requerido)
 CREATE TABLE public.users (
     id uuid NOT NULL,

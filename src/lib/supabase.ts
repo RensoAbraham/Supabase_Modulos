@@ -7,4 +7,4 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Asegúrate de haber creado un archivo .env con las variables VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)  
