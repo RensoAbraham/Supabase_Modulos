@@ -191,56 +191,49 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({
       }
   };
   
-  const handleValidateSale = async () => {
+const handleValidateSale = async () => {
     if (cart.length === 0) return alert("El carrito esta vacio");
     
     try {
-        const {data: {user} } = await supabase.auth.getUser();
+        const { data: { user } } = await supabase.auth.getUser();
 
         if (!user) {
-            alert("Error: No hay sesión activa.");
+            alert("Error: No hay sesión activa. Intente reiniciar sesión.");
             return;
         }
 
-        const saleHeaderData = {
-            user_id: user.id,
-            total: cartTotal,
-            payment_method: paymentMethod,
-            created_at: new Date().toISOString()
-        };
-
-        const {data: saleData, error: saleError} = await supabase
-            .from('sales_header')
-            .insert(saleHeaderData)
-            .select()
-            .single();
-
-        if (saleError) throw saleError;
-
-        const newSaleId = saleData.id;
-
-        const saleDetailData = cart.map(item => ({
-            sale_id: newSaleId,
+        // 1. Mapear el carrito a la estructura exigida por la función SQL (sale_item[])
+        // NOTA: El subtotal se calcula dentro de la función SQL, pero la enviamos para referencia.
+        const itemsPayload = cart.map(item => ({
             product_id: item.product.id,
             quantity: item.qty,
             unit_price: item.product.price,
-            subtotal: item.product.price * item.qty
         }));
+        
+        // 2. Llamada a la función PostgreSQL (RPC)
+        const { data: saleId, error: saleError } = await supabase.rpc('fn_registrar_venta', {
+            p_user_id: user.id,
+            p_payment_method: paymentMethod,
+            p_items: itemsPayload // El arreglo de objetos JSON
+        });
 
-        const {error: detailsError } = await supabase
-            .from('sales_detail')
-            .insert(saleDetailData);
+        if (saleError) throw saleError;
 
-        if (detailsError) throw detailsError;
+    const newSaleId = saleId; 
+    console.log("✅ Venta registrada exitosamente con ID:", newSaleId);
+    
+    // 3. Finalización: Muestra el recibo y limpia
+    // 🛑 BORRA ESTAS DOS LÍNEAS 🛑
+    // setCart([]); 
+    // setTenderAmount(''); 
+    
+    setView('receipt'); // <-- SOLO QUEDA ESTA LÍNEA DE CAMBIO DE VISTA
 
-        console.log("✅ Venta registrada ID:", newSaleId);
-        setView('receipt');
-
-    } catch (error: any) {
-        console.error("Error venta:", error);
-        alert("❌ Error: " + error.message);
+} catch (error: any) {
+        console.error("Error al registrar la venta (RPC):", error);
+        alert("❌ Error al registrar la venta. Causa: " + error.message);
     }
-  };
+};
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

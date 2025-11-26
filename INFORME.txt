@@ -1,0 +1,48 @@
+INFORME DE PROYECTO FINAL - POS VERDULERÍA (MÓDULO 3)
+=====================================================
+
+INTEGRANTE: [TU NOMBRE COMPLETO] (Cubriendo roles de Arquitecto Backend - Sala A y Desarrollador Frontend - Sala B)
+FECHA: 26/11/2025
+
+ESTADO DEL PROYECTO: FUNCIONAL Y SEGURO (Nivel Profesional)
+
+-----------------------------------------------------
+1. OBJETIVOS CUMPLIDOS (BACKEND - SALA A)
+-----------------------------------------------------
+
+Hemos transformado el esquema inicial en un backend transaccional y robusto:
+
+1.1. Modelado Profesional (001_002_constraints.sql):
+    - Se corrigió el tipo de dato para el manejo de dinero (precios/montos) de REAL a NUMERIC(10, 2) para evitar errores de redondeo.
+    - Se agregó la tabla product_stock para la gestión de inventario en tiempo real.
+    - Se reasentaron todas las Foreign Keys (FKs) para asegurar la integridad referencial (ej: sales_header a users, sales_detail a products).
+
+1.2. Lógica Avanzada (003_functions.sql):
+    - Se crearon las tres funciones RPC principales para la capa de negocio:
+        - fn_registrar_venta(): Realiza la inserción atómica de la cabecera y el detalle de venta, y calcula el total.
+        - fn_validar_apertura_caja(): Implementa la lógica para chequear el estado de la caja del cajero actual.
+        - fn_obtener_dashboard_caja(): Permite generar reportes de ventas y movimientos de caja en una sola consulta.
+
+1.3. Automatización (004_triggers.sql):
+    - Trigger actualizar_stock_en_venta: Se implementó un trigger AFTER INSERT en sales_detail para reducir automáticamente el stock en product_stock, incluyendo la validación de stock negativo.
+
+1.4. Seguridad RLS:
+    - Se aplicó la política de seguridad final: "Cajero ve solo sus ventas" Y "Admin ve todas" (mediante la cláusula EXISTS para verificar el rol).
+
+-----------------------------------------------------
+2. PROBLEMAS ENCONTRADOS Y SOLUCIONES APLICADAS
+-----------------------------------------------------
+
+| Problema | Causa Raíz | Solución Definitiva |
+| :--- | :--- | :--- |
+| **A. Falla de Inserción (RLS/FK)** | El sistema no podía verificar el user_id del cajero en la tabla 'users' antes de registrar la venta, causando un error de llave foránea (FK) y violando RLS. | **Inyección de Perfil:** Se forzó la inserción del perfil del usuario (con el UUID de sesión) en la tabla 'public.users' para satisfacer el requisito de la FK. |
+| **B. Error de Sintaxis/Conflicto (400)** | El Front-end (Sala B) estaba llamando a una función (RPC) que no existía en el Backend (Sala A) y conflictos en la ejecución de los triggers. | **Ejecución Consolidada:** Se ejecutó el script final de 003_functions.sql y 004_triggers.sql, instalando las funciones y neutralizando los triggers obsoletos (ej: se eliminó el trigger de correlativo para eliminar el error "has no field correlative"). |
+| **C. Recibo en Cero** | El estado local del carrito se limpiaba inmediatamente después de la llamada RPC exitosa. | **Ajuste de Estado (Frontend):** Se eliminó la función setCart([]) de handleValidateSale y se delegó la limpieza únicamente a handleNewOrder para que el recibo pudiera leer el total antes del reinicio. |
+
+-----------------------------------------------------
+3. CONCLUSIÓN (Estado de la Integración)
+-----------------------------------------------------
+
+La integración fue un éxito. El Frontend consume todas las funciones avanzadas del Backend (RPC) y el sistema cumple con la funcionalidad principal: **el registro de ventas y la gestión de inventario son transaccionales y están protegidos por RLS.**
+
+---
