@@ -355,3 +355,36 @@ s3_region = "env(S3_REGION)"
 s3_access_key = "env(S3_ACCESS_KEY)"
 # Configures AWS_SECRET_ACCESS_KEY for S3 bucket
 s3_secret_key = "env(S3_SECRET_KEY)"
+
+[functions.registrar_venta]
+enabled = true
+verify_jwt = true
+import_map = "./functions/registrar_venta/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/registrar_venta/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/registrar_venta/*.html" ]
+
+[functions.obtener_dashboard_caja]
+enabled = true
+verify_jwt = true
+import_map = "./functions/obtener_dashboard_caja/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/obtener_dashboard_caja/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/obtener_dashboard_caja/*.html" ]
+
+[functions.registrar_movimiento_caja]
+enabled = true
+verify_jwt = true
+import_map = "./functions/registrar_movimiento_caja/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/registrar_movimiento_caja/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/registrar_movimiento_caja/*.html" ]
